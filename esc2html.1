@@ -1,0 +1,37 @@
+.TH ESC2HTML 1
+.SH NAME
+esc2html - convert escape sequences to html
+.SH SYNOPSIS
+\fB...\fR | \fBesc2html\fR [\fIOPTIONS\fR] > \fIoutput.html\fR
+.SH DESCRIPTION
+Removes escape sequences and converts subset of ANSI escape sequences to html.
+.SH OPTIONS
+.TP
+\fB\-h\fR
+Print a help message.
+.TP
+\fB\-q\fR
+Don't show warnings about unknown and skipped sequences.
+.TP
+\fB\-s\fR
+Convert sixel graphics with \fBconvert\fR(1) and \fBbase64\fR(1).
+.TP
+\fB\-p\fR
+Print only the main <pre> element, no html header and footer.
+.TP
+\fB\-t\fR=\fITITLE\fR
+Set the title of the html document, defauĺt is esc2html.
+.TP
+\fB\-f\fR=\fIFONT\fR
+Set the font of the html document, default is monospace.
+.SH EXAMPLES
+To save a listing of the current directory as \fIls.html\fR:
+.PP
+.nf
+.RS
+ls --color | esc2html > ls.html
+.RE
+.fi
+.PP
+.SH COPYRIGHT
+This program is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or (at your option) any later version.
