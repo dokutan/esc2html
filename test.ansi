@@ -7,6 +7,7 @@ This file contains examples of escape sequences that are handled by esc2html.
 [1mbold[22m
 [3mitalic[23m
 [4munderlined[24m
+[7minverted colors[0m
 concealed:[8m concealed[28muntil here
 [9mcrossed out[29m
 [53moverlined[55m
@@ -16,7 +17,7 @@ concealed:[8m concealed[28muntil here
 [73msuperscript[0m
 [74msubscript[0m
 
-[32;1;3;4;53mtext attributes can be combined[0m
+[34;102;1;3;4;53mtext attributes can be combined[0m
 
 [1mColors[0m
 

@@ -134,12 +134,27 @@ int main( int argc, char* argv[] ){
 					decode_sixel( std::cout, sequence );
 			}
 			
-			// unknown sequence TODO! skip completely
+			// other sequences terminated by ST, skips the whole sequence
+			else if( std::regex_match( data.substr( i, 2 ), std::regex( "\e[P\\]X_^]" ) ) ){
+				
+				while( 1 ){
+					i++;
+					
+					// end of the sequence indicated by ST (\e\\) or BEL (\x07)
+					if( (data.at( i-1 ) == '\\' && data.at( i-2 ) == '\e') || data.at( i-1 ) == '\x07' )
+						break;
+				}
+				
+			}
+			
+			// unknown sequence "\e[0x20-0x2f]*[0x30-0x7e]"
 			else{
-				if( !flag_quiet )
-					std::cerr << "Warning: unknown escape sequence\n";
+				
+				do{
+					i++;
+				}while( data.at( i ) < '\x30' || data.at( i ) > '\x7e' );
 				i++;
-				continue;
+				
 			}
 			
 		}
@@ -161,7 +176,7 @@ int main( int argc, char* argv[] ){
 	tag_stack.clear();
 	
 	// html footer
-	std::cout << "\n</pre>\n";
+	std::cout << "\n</pre>";
 	if( !flag_no_header )
 		std::cout << html_footer;
 	

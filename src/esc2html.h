@@ -94,13 +94,16 @@ class html_tag {
 		}
 };
 
-// global vars
+// global constants
 const std::string html_header = "<!DOCTYPE html>\n<html lang=\"\">\n<head><title>esc2html</title></head>\n<body>\n";
 const std::string html_pre = "<pre style=\"font-family: monospace\">\n";
 const std::string html_footer = "\n</body>\n</html>\n";
 
+const std::string foreground_color_default = "#000000";
+const std::string background_color_default = "#ffffff";
+
 // characters that need escaping in html
-std::map< std::string, std::string > replacements = {
+const std::map< std::string, std::string > replacements = {
 	{ "\r", "" },
 	//{ "\n", "<br>" },
 	{ "&", "&amp;" },
@@ -110,11 +113,10 @@ std::map< std::string, std::string > replacements = {
 	{ "\"", "&quot;" }
 };
  
-std::map< std::string, html_tag > format_html = {
+const std::map< std::string, html_tag > format_html = {
 	{ "1",  html_tag( "b" ) }, // bold
 	{ "3",  html_tag( "i" ) }, // italic
 	{ "4",  html_tag( "u" ) }, // underline
-	//{ "7",  html_tag( "span", "style", "filter:invert(100%)" ) }, // invert TODO!
 	{ "8",  html_tag( "span", "style", "opacity:0" ) }, // conceal
 	{ "9",  html_tag( "s" ) }, // strike through
 	{ "21", html_tag( "u", "style", "text-decoration-style:double" ) }, // double underline
@@ -131,7 +133,7 @@ std::map< std::string, html_tag > format_html = {
 	{ "74", html_tag( "sub", "sup" ) } // subscript
 };
 
-std::map< std::string, std::string > sgr_skip = {
+const std::map< std::string, std::string > sgr_skip = {
 	{ "5",  "slow blink" },
 	{ "6",  "rapid blink" },
 	{ "25", "blink off" },
@@ -160,7 +162,7 @@ std::map< std::string, std::string > sgr_skip = {
 };
 
 // these are the color values for the VGA palette
-std::map< std::string, std::string > colors_fg = {
+const std::map< std::string, std::string > colors_fg = {
 	{ "30", "color:rgb(0, 0, 0)" },
 	{ "31", "color:rgb(170, 0, 0)" },
 	{ "32", "color:rgb(0, 170, 0)" },
@@ -178,7 +180,7 @@ std::map< std::string, std::string > colors_fg = {
 	{ "96", "color:rgb(85, 255, 255)" },
 	{ "97", "color:rgb(255, 255, 255)" }
 };
-std::map< std::string, std::string > colors_bg = {
+const std::map< std::string, std::string > colors_bg = {
 	{ "40", "background-color:rgb(0, 0, 0)" },
 	{ "41", "background-color:rgb(170, 0, 0)" },
 	{ "42", "background-color:rgb(0, 170, 0)" },
@@ -196,9 +198,9 @@ std::map< std::string, std::string > colors_bg = {
 	{ "106", "background-color:rgb(85, 255, 255)" },
 	{ "107", "background-color:rgb(255, 255, 255)" }
 };
-std::vector< std::string > colors_216_levels = { "00", "5f", "87", "af", "d7", "ff" };
+const std::vector< std::string > colors_216_levels = { "00", "5f", "87", "af", "d7", "ff" };
 std::map< int, std::string > colors_216;
-std::map< int, std::string > colors_gray = {
+const std::map< int, std::string > colors_gray = {
 	{ 232, "#080808" },
 	{ 233, "#121212" },
 	{ 234, "#1c1c1c" },
@@ -236,7 +238,7 @@ void calculate_colors_216(){
 	}
 }
 
-std::string help_message = 
+const std::string help_message = 
 R"(esc2html - convert escape sequences to html
 
 Usage:
@@ -251,11 +253,31 @@ Options:
 -f arg	set the font of the html document, default is monospace
 )";
 
+// global variables
+bool inverted_colors = false;
+std::vector< std::string > last_fg_color = { "30" };
+std::vector< std::string > last_bg_color = { "107" };
+
+// turns a foreground color command into a background color command and vice versa
+// returns other commands unchanged
+std::string invert_color( std::string command ){
+	if( std::regex_match( command, std::regex( "3." ) ) )
+		command[0] = '4';
+	else if( std::regex_match( command, std::regex( "4." ) ) )
+		command[0] = '3';
+	else if( std::regex_match( command, std::regex( "9[0-7]" ) ) )
+		command = std::regex_replace( command, std::regex( "9" ), "10" );
+	else if( std::regex_match( command, std::regex( "10[0-7]" ) ) )
+		command = std::regex_replace( command, std::regex( "10" ), "9" );
+		
+	return command;
+}
+
 // turns a CSI sequence into html tags
 void decode_csi( std::ostream& output, std::vector< html_tag >& tag_stack, std::string sequence, bool quiet ){
 	
-	// check if sequence is an SGR sequence TODO! print warning
-	if( !std::regex_match( sequence, std::regex( "\e\\[.+m" ) ) )
+	// check if sequence is an SGR sequence
+	if( !std::regex_match( sequence, std::regex( "\e\\[.*m" ) ) )
 		return;
 	
 	// split sequence into individual commands
@@ -267,16 +289,45 @@ void decode_csi( std::ostream& output, std::vector< html_tag >& tag_stack, std::
 		sequence = m.suffix();
 	}
 	
+	// no commands: "\e[m" is equivalent to "\e[0m" (reset everything)
+	if( commands.size() == 0 )
+		commands.push_back( "0" );
+	
 	// decode commands
 	for( size_t i = 0; i < commands.size(); ){
 		
 		std::string command = commands.at( i );
 		i++;
-				
+		
+		// invert colors: substitute command with color commands
+		if( command == "7" && !inverted_colors ){
+			inverted_colors = true;
+			
+			commands.insert( commands.begin()+i, last_bg_color.begin(), last_bg_color.end() );
+			commands.insert( commands.begin()+i, last_fg_color.begin(), last_fg_color.end() );
+			continue;
+			
+		} else if( command == "27" && inverted_colors ){
+			inverted_colors = false;
+			
+			std::vector< std::string > fg_color = last_bg_color;
+			std::vector< std::string > bg_color = last_fg_color;
+			fg_color[0] = invert_color( fg_color[0] );
+			bg_color[0] = invert_color( bg_color[0] );
+			
+			commands.insert( commands.begin()+i, bg_color.begin(), bg_color.end() );
+			commands.insert( commands.begin()+i, fg_color.begin(), fg_color.end() );
+			continue;
+		}
+		
+		// if in inverted colors mode: modify color commands
+		if( inverted_colors )
+			command = invert_color( command );
+		
 		// formatting
 		html_tag tag;
 		bool apply_formatting = false;
-
+		
 		// turn everything off
 		if( command == "0" ){
 			
@@ -287,6 +338,10 @@ void decode_csi( std::ostream& output, std::vector< html_tag >& tag_stack, std::
 			
 			// clear the stack
 			tag_stack.clear();
+			
+			last_fg_color = { "30" };
+			last_bg_color = { "107" };
+			inverted_colors = false;
 			
 			continue;
 		}
@@ -307,6 +362,7 @@ void decode_csi( std::ostream& output, std::vector< html_tag >& tag_stack, std::
 			tag.closes.emplace( "span", std::map< std::string, std::regex >({ {"style", std::regex("color:.*")} }) );
 			tag.attributes.emplace( "style", colors_fg.at( command ) );
 			apply_formatting = true;
+			last_fg_color = { command };
 		}
 		
 		// 3/4 bit background color
@@ -315,6 +371,7 @@ void decode_csi( std::ostream& output, std::vector< html_tag >& tag_stack, std::
 			tag.closes.emplace( "span", std::map< std::string, std::regex >({ {"style", std::regex("background-color:.*")} }) );
 			tag.attributes.emplace( "style", colors_bg.at( command ) );
 			apply_formatting = true;
+			last_bg_color = { command };
 		}
 		
 		// 8 bit text color
@@ -323,7 +380,6 @@ void decode_csi( std::ostream& output, std::vector< html_tag >& tag_stack, std::
 			int color = std::stoi( commands.at( i+1 ) );
 			std::string attribute;
 			tag.name = "span";
-			i += 2;
 			
 			if( color >= 0 && color <= 7 )
 				attribute = colors_bg.at( std::to_string( color+30 ) );
@@ -337,6 +393,8 @@ void decode_csi( std::ostream& output, std::vector< html_tag >& tag_stack, std::
 			tag.closes.emplace( "span", std::map< std::string, std::regex >({ {"style", std::regex("color:.*")} }) );
 			tag.attributes.emplace( "style", attribute );
 			apply_formatting = true;
+			last_fg_color = { "38", "5", commands.at( i+1 ) };
+			i += 2;
 		}
 		
 		// 8 bit background color
@@ -345,7 +403,6 @@ void decode_csi( std::ostream& output, std::vector< html_tag >& tag_stack, std::
 			int color = std::stoi( commands.at( i+1 ) );
 			std::string attribute;
 			tag.name = "span";
-			i += 2;
 			
 			if( color >= 0 && color <= 7 )
 				attribute = colors_bg.at( std::to_string( color+40 ) );
@@ -359,6 +416,8 @@ void decode_csi( std::ostream& output, std::vector< html_tag >& tag_stack, std::
 			tag.closes.emplace( "span", std::map< std::string, std::regex >({ {"style", std::regex("background-color:.*")} }) );
 			tag.attributes.emplace( "style", attribute );
 			apply_formatting = true;
+			last_bg_color = { "48", "5", commands.at( i+1 ) };
+			i += 2;
 		}
 		
 		// 24 bit text color
@@ -367,8 +426,9 @@ void decode_csi( std::ostream& output, std::vector< html_tag >& tag_stack, std::
 			tag.name = "span";
 			tag.attributes.emplace( "style", "color:rgb("+commands.at( i+1 )+", "+commands.at( i+2 )+", "+commands.at( i+3 )+")" );
 			tag.closes.emplace( "span", std::map< std::string, std::regex >({ {"style", std::regex("color:.*")} }) );
-			i += 4;
 			apply_formatting = true;
+			last_fg_color = { "38", "2", commands.at( i+1 ), commands.at( i+2 ), commands.at( i+3 ) };
+			i += 4;
 		}
 		
 		// 24 bit background color
@@ -377,8 +437,9 @@ void decode_csi( std::ostream& output, std::vector< html_tag >& tag_stack, std::
 			tag.name = "span";
 			tag.attributes.emplace( "style", "background-color:rgb("+commands.at( i+1 )+", "+commands.at( i+2 )+", "+commands.at( i+3 )+")" );
 			tag.closes.emplace( "span", std::map< std::string, std::regex >({ {"style", std::regex("background-color:.*")} }) );
-			i += 4;
 			apply_formatting = true;
+			last_bg_color = { "48", "2", commands.at( i+1 ), commands.at( i+2 ), commands.at( i+3 ) };
+			i += 4;
 		}
 		
 		if( apply_formatting ){
