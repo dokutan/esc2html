@@ -134,6 +134,32 @@ int main( int argc, char* argv[] ){
 					decode_sixel( std::cout, sequence );
 			}
 			
+			// hyperlink (OSC 8 = \e]8)
+			else if( data.substr( i, 3 ) == "\e]8" ){
+				
+				// skip beginning of sequence
+				i+=3;
+				
+				// get URI
+				std::string uri;
+				while( 1 ){
+					uri += data.at( i );
+					i++;
+					
+					// end of the sequence indicated by ST (\e\\) or BEL (\x07)
+					if( (data.at( i-1 ) == '\\' && data.at( i-2 ) == '\e') || data.at( i-1 ) == '\x07' )
+						break;
+				}
+				uri = std::regex_replace( uri, std::regex( "(;.*;|\e\\\\|\x07)" ), "" );
+				
+				if( uri != "" )
+					apply_tag( std::cout, tag_stack, html_tag( "a", "href", uri, "a", "href", ".*" ) );
+				
+				else
+					apply_tag( std::cout, tag_stack, html_tag( "", "a" ) );
+				
+			}
+			
 			// other sequences terminated by ST, skips the whole sequence
 			else if( std::regex_match( data.substr( i, 2 ), std::regex( "\e[P\\]X_^]" ) ) ){
 				

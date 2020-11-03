@@ -53,6 +53,14 @@ class html_tag {
 			closes.emplace( closes_name, std::map< std::string, std::regex >({ {closes_attribute_name, std::regex(closes_attribute_value)} }) );
 		}
 		
+		html_tag( std::string tag_name, std::string attribute_name, std::string attribute_value,
+				std::string closes_name, std::string closes_attribute_name, std::string closes_attribute_value ){
+			
+			name = tag_name;
+			attributes.emplace( attribute_name, attribute_value );
+			closes.emplace( closes_name, std::map< std::string, std::regex >({ {closes_attribute_name, std::regex(closes_attribute_value)} }) );
+		}
+		
 		// print tag
 		void print_open( std::ostream& output ){
 			
@@ -95,7 +103,32 @@ class html_tag {
 };
 
 // global constants
-const std::string html_header = "<!DOCTYPE html>\n<html lang=\"\">\n<head><title>esc2html</title></head>\n<body>\n";
+const std::string html_header = 
+R"(<!DOCTYPE html>
+<html lang="">
+<head>
+	<title>esc2html</title>
+	<style>
+		@keyframes blinking {
+			0%  { opacity:1; }
+			50% { opacity:0; }
+		}
+		#blink-slow {
+			animation: blinking;
+			animation-duration: 0.6s;
+			animation-iteration-count: infinite;
+			animation-timing-function: step-start;
+		}
+		#blink-rapid {
+			animation: blinking;
+			animation-duration: 0.3s;
+			animation-iteration-count: infinite;
+			animation-timing-function: step-start;
+		}
+	</style>
+</head>
+<body>
+)";
 const std::string html_pre = "<pre style=\"font-family: monospace\">\n";
 const std::string html_footer = "\n</body>\n</html>\n";
 
@@ -117,12 +150,15 @@ const std::map< std::string, html_tag > format_html = {
 	{ "1",  html_tag( "b" ) }, // bold
 	{ "3",  html_tag( "i" ) }, // italic
 	{ "4",  html_tag( "u" ) }, // underline
+	{ "5",  html_tag( "span", "id", "blink-slow", "span", "id", "blink.*" ) }, // slow blink
+	{ "6",  html_tag( "span", "id", "blink-rapid", "span", "id", "blink.*" ) }, // rapid blink
 	{ "8",  html_tag( "span", "style", "opacity:0" ) }, // conceal
 	{ "9",  html_tag( "s" ) }, // strike through
 	{ "21", html_tag( "u", "style", "text-decoration-style:double" ) }, // double underline
 	{ "22", html_tag( "", "b" ) }, // bold off
 	{ "23", html_tag( "", "i" ) }, // italic off
 	{ "24", html_tag( "", "u" ) }, // underline off
+	{ "25", html_tag( "", "span", "id", "blink.*" ) }, // blink off
 	{ "28", html_tag( "", "span", "style", "opacity:.*" ) }, // conceal off
 	{ "29", html_tag( "", "s" ) }, // strike through off
 	{ "39", html_tag( "", "span", "style", "color:.*" ) }, // text color off
@@ -134,9 +170,6 @@ const std::map< std::string, html_tag > format_html = {
 };
 
 const std::map< std::string, std::string > sgr_skip = {
-	{ "5",  "slow blink" },
-	{ "6",  "rapid blink" },
-	{ "25", "blink off" },
 	{ "10", "default font" },
 	{ "11", "font 1" },
 	{ "12", "font 2" },
@@ -273,6 +306,42 @@ std::string invert_color( std::string command ){
 	return command;
 }
 
+void apply_tag( std::ostream& output, std::vector< html_tag >& tag_stack, html_tag tag ){
+	
+	std::vector< html_tag > temp_stack; // holds tags that need to be closed and reopened
+	size_t skip = 0; // number of tags to skip from the bottom of the stack
+	
+	// count tags that don't need to be closed
+	for( auto it = tag_stack.begin(); it != tag_stack.end(); it++ ){
+		if( it->closed_by( tag ) )
+			break;
+		else
+			skip++;
+	}
+	
+	// close opened tags
+	std::for_each( tag_stack.rbegin(), tag_stack.rend()-skip, [&](auto& t){
+		t.print_close( output );
+		if( !t.closed_by( tag ) )
+			temp_stack.push_back( t );
+	} );
+	
+	// re-open tags
+	std::for_each( temp_stack.rbegin(), temp_stack.rend(), [&](auto& t){
+		t.print_open( output );
+	} );
+	
+	// delete closed tags
+	std::erase_if( tag_stack, [&](auto& t){
+		return t.closed_by( tag );
+	} );
+	
+	// open new tag
+	tag_stack.push_back( tag );
+	tag_stack.back().print_open( output );
+			
+}
+
 // turns a CSI sequence into html tags
 void decode_csi( std::ostream& output, std::vector< html_tag >& tag_stack, std::string sequence, bool quiet ){
 	
@@ -331,13 +400,34 @@ void decode_csi( std::ostream& output, std::vector< html_tag >& tag_stack, std::
 		// turn everything off
 		if( command == "0" ){
 			
-			// close all tags
-			std::for_each( tag_stack.rbegin(), tag_stack.rend(), [&](auto& t){
+			std::set< std::string > keep_open = { "a" }; // don't close these tags
+			std::vector< html_tag > temp_stack; // holds tags that need to be closed and reopened
+			size_t skip = 0; // number of tags to skip from the bottom of the stack
+			
+			// count tags that don't need to be closed
+			for( auto it = tag_stack.begin(); it != tag_stack.end(); it++ ){
+				if( !keep_open.contains( it->name ) )
+					break;
+				else
+					skip++;
+			}
+			
+			// close opened tags
+			std::for_each( tag_stack.rbegin(), tag_stack.rend()-skip, [&](auto& t){
 				t.print_close( output );
+				if( keep_open.contains( t.name ) )
+					temp_stack.push_back( t );
 			} );
 			
-			// clear the stack
-			tag_stack.clear();
+			// re-open tags
+			std::for_each( temp_stack.rbegin(), temp_stack.rend(), [&](auto& t){
+				t.print_open( output );
+			} );
+			
+			// delete closed tags
+			std::erase_if( tag_stack, [&](auto& t){
+				return !keep_open.contains( t.name );
+			} );
 			
 			last_fg_color = { "30" };
 			last_bg_color = { "107" };
@@ -442,41 +532,8 @@ void decode_csi( std::ostream& output, std::vector< html_tag >& tag_stack, std::
 			i += 4;
 		}
 		
-		if( apply_formatting ){
-			
-			std::vector< html_tag > temp_stack; // holds tags that need to be closed and reopened
-			size_t skip = 0; // number of tags to skip from the bottom of the stack
-			
-			// count tags that don't need to be closed
-			for( auto it = tag_stack.begin(); it != tag_stack.end(); it++ ){
-				if( it->closed_by( tag ) )
-					break;
-				else
-					skip++;
-			}
-			
-			// close opened tags
-			std::for_each( tag_stack.rbegin(), tag_stack.rend()-skip, [&](auto& t){
-				t.print_close( output );
-				if( !t.closed_by( tag ) )
-					temp_stack.push_back( t );
-			} );
-			
-			// re-open tags
-			std::for_each( temp_stack.rbegin(), temp_stack.rend(), [&](auto& t){
-				t.print_open( output );
-			} );
-			
-			// delete closed tags
-			std::erase_if( tag_stack, [&](auto& t){
-				return t.closed_by( tag );
-			} );
-			
-			// open new tag
-			tag_stack.push_back( tag );
-			tag_stack.back().print_open( output );
-			
-		}
+		if( apply_formatting )
+			apply_tag( output, tag_stack, tag );
 		
 	}
 	
