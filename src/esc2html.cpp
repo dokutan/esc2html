@@ -71,126 +71,131 @@ int main( int argc, char* argv[] ){
 		modified_pre = std::regex_replace( modified_pre, std::regex("monospace"), arg_font );
 	std::cout << modified_pre;
 	
-	
-	// read complete stdin into buffer
-	std::string line, data = "";
-	while( std::getline( std::cin, line ) ){
-		data += line;
-		data += "\n";
-	}
-	
 	// tag stack
 	std::vector< html_tag > tag_stack;
 	
-	// calculate color lookup table
-	calculate_colors_216();
-	
-	// process data
-	for( size_t i = 0; i < data.size(); ){
+	try{
 		
-		std::string byte = data.substr( i, 1 );
-		
-		// replace < > & etc.
-		if( replacements.find(byte) != replacements.end() ){
-			std::cout << replacements.at(byte);
-			i++;
+		// read complete stdin into buffer
+		std::string line, data = "";
+		while( std::getline( std::cin, line ) ){
+			data += line;
+			data += "\n";
 		}
 		
-		// escape sequence
-		else if( byte == "\e" ){
+		// calculate color lookup table
+		calculate_colors_216();
+		
+		// process data
+		for( size_t i = 0; i < data.size(); ){
 			
-			// CSI (Control Sequence Introducer)
-			if( data.substr( i, 2 ) == "\e[" ){
-				
-				// get full sequence
-				std::string sequence = "\e[";
-				i+=2;
-				do{
-					sequence += data.at( i );
-					i++;
-				}while( sequence.back() < '\x40' || sequence.back() > '\x7e' );
-				
-				// decode sequence
-				decode_csi( std::cout, tag_stack, sequence, flag_quiet );
-			}
+			std::string byte = data.substr( i, 1 );
 			
-			// Sixel graphics
-			else if( data.substr( i, 3 ) == "\ePq" ){
-				
-				// get full sequence
-				std::string sequence = "\ePq";
-				i+=3;
-				
-				while( 1 ){
-					sequence += data.at( i );
-					i++;
-					
-					// end of the sequence indicated by ST (\e\\) 
-					if( data.at( i-1 ) == '\\' && data.at( i-2 ) == '\e' )
-						break;
-				}
-				
-				if( flag_sixel )
-					decode_sixel( std::cout, sequence );
-			}
-			
-			// hyperlink (OSC 8 = \e]8)
-			else if( data.substr( i, 3 ) == "\e]8" ){
-				
-				// skip beginning of sequence
-				i+=3;
-				
-				// get URI
-				std::string uri;
-				while( 1 ){
-					uri += data.at( i );
-					i++;
-					
-					// end of the sequence indicated by ST (\e\\) or BEL (\x07)
-					if( (data.at( i-1 ) == '\\' && data.at( i-2 ) == '\e') || data.at( i-1 ) == '\x07' )
-						break;
-				}
-				uri = std::regex_replace( uri, std::regex( "(;.*;|\e\\\\|\x07)" ), "" );
-				
-				if( uri != "" )
-					apply_tag( std::cout, tag_stack, html_tag( "a", "href", uri, "a", "href", ".*" ) );
-				
-				else
-					apply_tag( std::cout, tag_stack, html_tag( "", "a" ) );
-				
-			}
-			
-			// other sequences terminated by ST, skips the whole sequence
-			else if( std::regex_match( data.substr( i, 2 ), std::regex( "\e[P\\]X_^]" ) ) ){
-				
-				while( 1 ){
-					i++;
-					
-					// end of the sequence indicated by ST (\e\\) or BEL (\x07)
-					if( (data.at( i-1 ) == '\\' && data.at( i-2 ) == '\e') || data.at( i-1 ) == '\x07' )
-						break;
-				}
-				
-			}
-			
-			// unknown sequence "\e[0x20-0x2f]*[0x30-0x7e]"
-			else{
-				
-				do{
-					i++;
-				}while( data.at( i ) < '\x30' || data.at( i ) > '\x7e' );
+			// replace < > & etc. with the html escape codes
+			if( replacements.find(byte) != replacements.end() ){
+				std::cout << replacements.at(byte);
 				i++;
+			}
+			
+			// escape sequence
+			else if( byte == "\e" ){
 				
+				// CSI (Control Sequence Introducer)
+				if( data.substr( i, 2 ) == "\e[" ){
+					
+					// get full sequence
+					std::string sequence = "\e[";
+					i+=2;
+					do{
+						sequence += data.at( i );
+						i++;
+					}while( sequence.back() < '\x40' || sequence.back() > '\x7e' );
+					
+					// decode sequence
+					decode_csi( std::cout, tag_stack, sequence, flag_quiet );
+				}
+				
+				// Sixel graphics
+				else if( data.substr( i, 3 ) == "\ePq" ){
+					
+					// get full sequence
+					std::string sequence = "\ePq";
+					i+=3;
+					
+					while( 1 ){
+						sequence += data.at( i );
+						i++;
+						
+						// end of the sequence indicated by ST (\e\\) 
+						if( data.at( i-1 ) == '\\' && data.at( i-2 ) == '\e' )
+							break;
+					}
+					
+					if( flag_sixel )
+						decode_sixel( std::cout, sequence );
+				}
+				
+				// hyperlink (OSC 8 = \e]8)
+				else if( data.substr( i, 3 ) == "\e]8" ){
+					
+					// skip beginning of sequence
+					i+=3;
+					
+					// get URI
+					std::string uri;
+					while( 1 ){
+						uri += data.at( i );
+						i++;
+						
+						// end of the sequence indicated by ST (\e\\) or BEL (\x07)
+						if( (data.at( i-1 ) == '\\' && data.at( i-2 ) == '\e') || data.at( i-1 ) == '\x07' )
+							break;
+					}
+					uri = std::regex_replace( uri, std::regex( "(;.*;|\e\\\\|\x07)" ), "" );
+					
+					if( uri != "" )
+						apply_tag( std::cout, tag_stack, html_tag( "a", "href", uri, "a", "href", ".*" ) );
+					
+					else
+						apply_tag( std::cout, tag_stack, html_tag( "", "a" ) );
+					
+				}
+				
+				// other sequences terminated by ST, skips the whole sequence
+				else if( std::regex_match( data.substr( i, 2 ), std::regex( "\e[P\\]X_^]" ) ) ){
+					
+					while( 1 ){
+						i++;
+						
+						// end of the sequence indicated by ST (\e\\) or BEL (\x07)
+						if( (data.at( i-1 ) == '\\' && data.at( i-2 ) == '\e') || data.at( i-1 ) == '\x07' )
+							break;
+					}
+					
+				}
+				
+				// unknown sequence "\e[0x20-0x2f]*[0x30-0x7e]"
+				else{
+					
+					do{
+						i++;
+					}while( data.at( i ) < '\x30' || data.at( i ) > '\x7e' );
+					i++;
+					
+				}
+				
+			}
+			
+			// normal character
+			else{
+				std::cout << byte;
+				i++;
 			}
 			
 		}
 		
-		// normal character
-		else{
-			std::cout << byte;
-			i++;
-		}
-		
+	} catch( std::exception& e ){
+		std::cerr << "Exception caught: " << e.what() << "\n";
 	}
 	
 	// close all tags
